@@ -1,0 +1,172 @@
+---
+title: "E-Commerce"
+author: "Kalixta Escoto"
+date: "4/5/2026"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(readr)
+commerce_data <- read_csv("online_shoppers_intention.csv")
+```
+
+## 
+```{r}
+summary(commerce_data)
+```
+```{r}
+dim(commerce_data)
+```
+## The data contains 12.330 rows and 18 variables. Overall averages, medians, minimum, and maximum are shown through the data above based on variable.DImensions for the entire dataset demonstrate the number of rows and variables. 
+
+
+```{r}
+colSums(is.na(commerce_data))
+```
+```{r}
+commerce_data$Informational[is.na(commerce_data$Informational)] <- 
+  mean(commerce_data$Informational, na.rm = TRUE)
+
+commerce_data$PageValues[is.na(commerce_data$PageValues)] <- 
+  mean(commerce_data$PageValues, na.rm = TRUE)
+
+commerce_data$OperatingSystems[is.na(commerce_data$OperatingSystems)] <- "Unknown"
+
+colSums(is.na(commerce_data))
+```
+## Columns containing null responses were found using the colSums(is.na()) script. This found Informational, PageValues, and OperatingSystems to contain null values. All null values for both Informational and PageValues was changed to the mean of that variable, while OperatingSystems is categorical and replaced with "Unknown".
+
+
+
+```{r}
+commerce_data$TotalPages <- commerce_data$Administrative + 
+                            commerce_data$Informational + 
+                            commerce_data$ProductRelated
+
+commerce_data$TotalDuration <- commerce_data$Administrative_Duration + 
+                               commerce_data$Informational_Duration + 
+                               commerce_data$ProductRelated_Duration
+
+commerce_data %>%
+  group_by(Revenue) %>%
+  summarise(Average_Pages = mean(TotalPages, na.rm = TRUE),
+    Average_Time = mean(TotalDuration, na.rm = TRUE))
+```
+
+## Aggregation and Feature Construction was used to further develop the data. New field titled "TotalPages" and "TotalDuration" were created based on variable already created. In this case we want to vie the total number of pages visited between "Administrative", "Informational", and "ProductRelated". From there their total duration is added as well from those respective columns. Aggregation was then used to group by "Revenue", essentially purchase or ni purchase, as it related to the averages of "TotalPages" and "TotalDuration". Therefore, when a purchase is not made the average number of pages visited is 32 and the averade time spent is 1187, while when a purchase is made the average pages is 52 and the average time is 2053. Telling us that more time and pages visited are done when an individual makes a purchase. 
+
+```{r}
+sum(duplicated(commerce_data))
+```
+```{r}
+commerce_data <- distinct(commerce_data)
+```
+
+## Redundant data was reduced by checking for duplicate records and removing them using the distinct function.
+
+```{r}
+commerce_data$TotalPagesGroup <- cut(
+  commerce_data$TotalPages,
+  breaks = 3,
+  labels = c("Low Activity", "Medium Activity", "High Activity"))
+
+commerce_data$ProductDurationGroup <- cut(
+  commerce_data$ProductRelated_Duration,
+  breaks = 3,
+  labels = c("Low", "Medium", "High"))
+
+commerce_data$InformationalDurationGroup <- cut(
+  commerce_data$Informational_Duration,
+  breaks = 3,
+  labels = c("Low", "Medium", "High"))
+
+commerce_data$AdministrativeDurationGroup <- cut(
+  commerce_data$Administrative_Duration,
+  breaks = 3,
+  labels = c("Low", "Medium", "High"))
+```
+
+
+#This dataset contains numerical, categorical, and now ordinal data within. The numerical values are values that are quantifiable sucah as PageValues and durations of time within a specific site tyep i.e. Administrative, Informational, and ProductRelated. Similarly groups created are also numerical such as TotalPages and TotalDuration.
+
+#Categorical variables are not quantifiable and result in labeled data. Such as Month which contains the month of that specific data point.Also, Region is a categorical data point for looking at the area that data was found.
+
+#Ordinal variable were created during the previous stage through discretization. These are variable that are grouped in an order such as the categories of levels for TotalPagesGroup and ProductDurationGroup and others. These were grouped into low, medium, and high to further analysis and interpret the data as a whole.
+
+```{r}
+hist(commerce_data$TotalPages,
+     breaks = 100,
+     main = "Distribution of Total Pages Visited",
+     xlab = "Total Pages",
+     ylab = "Frequency")
+```
+
+
+
+```{r}
+hist(commerce_data$TotalDuration,
+     breaks = 10,
+     main = "Distribution of Total Duration",
+     xlab = "Total Duration",
+     ylab = "Frequency")
+```
+
+```{r}
+boxplot(TotalDuration ~ Revenue,
+        data = commerce_data,
+        breaks = 100,
+        main = "Total Duration by Purchase Outcome",
+        xlab = "Purchase",
+        ylab = "Total Duration")
+```
+
+  
+```{r}
+barplot(table(commerce_data$Revenue),
+        main = "Distribution of Revenue Outcomes",
+        xlab = "Revenue",
+        ylab = "Frequency")
+```
+
+## Measures of centrality and distribution were found using a multitude of visualizations. More specifically; histograms, bar charts, and box plots. The distribution of total pages visited no matter the specific page type was illustrated through a histogram. The distribution is skewed to the right demonstrating the majority look through less than 100 pages. Similarly, total duration is also right skewed as shown through a histogram telling us that majority spend less time browsing than the outliers. Duration by purchase outcome was also viewed through a box plot. This graph split purchase by true or false through the Revenue data. In this case both circumstances result in less time spent browsing. However, those without a purchase have increased outliers affecting the overall distribution while those with a purchase are less skewed. The distribution of Revenue was also viewed through a bar chart where the majority in this dataset do not have a purchase. THe two categories differ greatly in terms of population.
+
+
+```{r}
+numeric_data <- commerce_data[, c("TotalPages", "TotalDuration", "PageValues", 
+                                 "BounceRates", "ExitRates")]
+
+cor(numeric_data, use = "complete.obs")
+```
+
+
+```{r}
+barplot(table(commerce_data$Month, commerce_data$Revenue),
+        beside = TRUE,
+        legend = TRUE,
+        main = "Revenue by Month",
+        xlab = "Month",
+        ylab = "Frequency")
+```
+
+
+
+
+```{r}
+commerce_data$Revenue <- as.factor(commerce_data$Revenue)
+
+model_formula <- Revenue ~ TotalPages + TotalDuration + PageValues + BounceRates + ExitRates
+
+log_model <- glm(model_formula,
+                 data = commerce_data,
+                 family = "binomial")
+summary(log_model)
+```
+
+
+
+
