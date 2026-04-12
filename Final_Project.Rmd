@@ -1,0 +1,632 @@
+---
+title: "final project"
+output:
+  pdf_document:
+    latex_engine: xelatex
+date: "2026-03-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This project uses the Online Shoppers Intention dataset, which contains data from 12,330 online shopping sessions, with each session representing a different user over a one-year period. The dataset was designed this way to reduce bias from repeated users, specific campaigns, seasonal periods, or user-specific behavior, making it more appropriate for general analysis and predictive modeling. It is a CSV file obtained from the UCI Machine Learning Repository and is structured as a classification problem with some missing values present in the data.
+
+The dataset includes a combination of behavioral, session-based, and website analytics variables that describe how a visitor interacted with an e-commerce website. Several variables measure the number of pages visited and the amount of time spent in different categories of pages, including Administrative, Informational, and Product Related pages. These variables were derived from the URLs visited during each session and updated in real time as the user moved throughout the website. In addition, the dataset contains Google Analytics-based metrics such as Bounce Rate, Exit Rate, and Page Value, which help capture how engaged a visitor was and how valuable certain pages were in relation to a completed purchase.
+
+The dataset also includes contextual and categorical variables such as Special Day, Month, OperatingSystems, Browser, Region, TrafficType, VisitorType, and Weekend. These features provide additional insight into when and how users visited the site, whether they were new or returning visitors, and whether their visit occurred near a special shopping-related date. The target variable for this project is Revenue, a binary variable indicating whether the session ended in a completed purchase (TRUE) or not (FALSE). Because the goal is to predict whether a customer session results in a sale, this dataset is well suited for supervised machine learning classification analysis.
+
+In this project, the dataset will be cleaned, explored, and analyzed to better understand patterns in online shopper behavior. Visualizations and summary statistics will be used to examine relationships among variables, and classification models will be applied to predict purchase intention based on customer browsing behavior and session characteristics.
+
+## Importing data
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(caret)
+library(corrplot)
+library(ggplot2)
+
+shop <- read.csv("online_shoppers_intention.csv")
+dim(shop)
+str(shop)
+```
+
+
+```{r}
+colSums(is.na(shop))
+```
+
+
+```{r}
+sapply(shop, class)
+```
+
+The dataset was successfully imported into R using the read.csv() function from a CSV file named online_shoppers_intention.csv. After import, the dataset was stored as a data frame called shop.
+
+Initial inspection using dim(shop) showed that the dataset contains 12,330 observations and 18 variables, meaning there are 12,330 unique online shopping sessions and 18 recorded features for each session. This provides a sufficiently large sample size for both exploratory analysis and predictive modeling.
+
+In addition, variables such as OperatingSystems, Browser, Region, and TrafficType were initially imported as numeric or integer values, but they represent categorical codes rather than true continuous measurements. Because of this, these variables were later converted to factors during preprocessing so they could be treated correctly in the analysis.
+
+To understand the structure of the dataset, variable data types were examined using sapply(). This revealed that some categorical variables were stored as integers (e.g., Region, TrafficType) and others as characters (e.g., VisitorType). Identifying these differences ensured that variables were handled appropriately and prevented categorical data from being misinterpreted as numerical during analysis and modeling.
+
+Missing value checks using colSums(is.na(shop)) showed that most variables had no missing values, but a few variables did require preprocessing:Informational had 128 missing values, PageValues had 135 missing values and OperatingSystems had 123 missing values. Because these missing values were limited to a small number of variables, they were addressed during the preprocessing stage rather than removing entire observations from the dataset.
+
+Overall, the dataset was successfully imported and inspected, revealing a mix of numerical and categorical variables, a manageable amount of missing data, and several features that appear highly relevant for analyzing and predicting online purchase behavior.
+
+## Pre-processing Data
+
+The goal here is to Clean, wrangle, and handle missing data, as well as Transform the data appropriately. We can use techniques such as aggregation, normalization, and feature construction.
+
+
+```{r}
+shop$Informational[is.na(shop$Informational)] <- median(shop$Informational, na.rm = TRUE)
+shop$PageValues[is.na(shop$PageValues)] <- median(shop$PageValues, na.rm = TRUE)
+
+shop$OperatingSystems[is.na(shop$OperatingSystems)] <- "N/A"
+
+colSums(is.na(shop))
+```
+
+```{r}
+shop$Month <- as.factor(shop$Month)
+shop$VisitorType <- as.factor(shop$VisitorType)
+shop$Weekend <- as.factor(shop$Weekend)
+shop$Revenue <- as.factor(shop$Revenue)
+shop$Browser <- as.factor(shop$Browser)
+shop$Region <- as.factor(shop$Region)
+shop$TrafficType <- as.factor(shop$TrafficType)
+shop$OperatingSystems <- as.factor(shop$OperatingSystems)
+```
+
+The above variables were converted to a factor using as.factor function. It converts categorical variables into factors so R interprets them properly because they represent categories rather than a continuous measurement.
+
+Missing values in the Informational and PageValues variables were replaced with the median of the observed values. Median imputation was used because it preserves the variable’s central tendency while reducing the influence of extreme values. This allowed the dataset to remain complete for later analysis and modeling. In most cases, including this one, median is a prefered imputation, specifically for numeric variables, because it is influenced less than mean imputation.
+
+Missing values in the OperatingSystems variable were replaced with a distinct category labeled “N/A” rather than using imputation techniques such as the mode. This approach preserves the presence of missing data as a meaningful category and avoids introducing bias into the distribution of the variable. Treating missing values as a separate category allows the model to account for potential differences associated with unknown or unrecorded system information.
+
+Overall, during preprocessing, missing values in selected numerical variables were replaced using median imputation to reduce data loss and maintain a complete dataset for analysis. In addition, several variables such as Month, VisitorType, Weekend, Browser, Region, TrafficType, OperatingSystems, and Revenue were converted to factor data types because they represent categories rather than continuous numerical measurements. These preprocessing steps were necessary to ensure that the data was correctly structured for exploratory analysis and for supervised classification modeling of online purchase intention.
+
+```{r}
+page_types <- c("Administrative", "Informational", "ProductRelated")
+
+for (p in page_types) {
+  count_col <- shop[[p]]
+  duration_col <- shop[[paste0(p, "_Duration")]]
+  
+  new_name <- paste0(tolower(p), "_time_per_page")
+  
+  shop[[new_name]] <- ifelse(count_col > 0,
+                             duration_col / count_col,
+                             0)
+}
+summary(shop$administrative_time_per_page)
+summary(shop$productrelated_time_per_page)
+summary(shop$informational_time_per_page)
+```
+Feature construction was applied systematically across variables with similar structure. For each page category (administrative, informational, and product-related), a new variable was created to measure average time spent per page by dividing total duration by the number of pages visited. This transformation was implemented programmatically to ensure consistency across variables of the same type. These features provide a more meaningful representation of user engagement intensity and improve the interpretability of browsing behavior.
+
+```{r}
+shop$Product_Engaged <- ifelse(shop$ProductRelated_Duration > 0, 1, 0)
+shop$Info_Engaged <- ifelse(shop$Informational_Duration > 0, 1, 0)
+shop$Admin_Engaged <- ifelse(shop$Administrative_Duration > 0, 1, 0)
+```
+
+
+```{r}
+# Numeric columns you want if they exist
+num_cols <- c(
+  "Administrative", "Administrative_Duration",
+  "Informational", "Informational_Duration",
+  "ProductRelated", "ProductRelated_Duration",
+  "BounceRates", "ExitRates", "PageValues", "SpecialDay",
+  "Admin_Time_Per_Page", "Info_Time_Per_Page", "Product_Time_Per_Page"
+)
+
+# Keep only columns that are actually in the dataset
+num_cols <- num_cols[num_cols %in% names(shop)]
+num_cols
+
+# Outlier detection
+find_outliers <- function(x) {
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr <- q3 - q1
+  lower <- q1 - 1.5 * iqr
+  upper <- q3 + 1.5 * iqr
+  which(x < lower | x > upper)
+}
+
+outlier_list <- lapply(shop[, num_cols, drop = FALSE], find_outliers)
+outlier_counts <- sapply(outlier_list, length)
+outlier_counts
+
+all_outlier_rows <- sort(unique(unlist(outlier_list)))
+outlier_data <- shop[all_outlier_rows, , drop = FALSE]
+
+head(outlier_data)
+summary(shop)
+```
+The code first defines the set of numeric variables to be examined for outliers and then restricts that list to columns that actually exist in the dataset. An outlier detection function is created using the interquartile range (IQR) method, where values below 
+Q1 − 1.5×IQR or above Q3 + 1.5×IQR are flagged as outliers. This function is applied to each selected numeric variable, and the number of outliers is counted for each one. The row indices of all flagged observations are then combined to create a separate dataset containing the outlier cases for review.
+
+Additional code creates binary engagement variables for product-related, informational, and administrative activity. These variables indicate whether a session involved any interaction at all, using 1 for engagement and 0 for no engagement. This was especially useful because many of the original variables contained large numbers of zero values, so the binary indicators helped distinguish between no activity and some level of activity.
+
+Although many outliers were identified, they were retained in the dataset rather than removed. In this case, the extreme values appear to reflect real user behavior rather than clear data entry errors. Online browsing data is naturally skewed, with most users showing low engagement and a smaller group exhibiting very high levels of activity. Removing these observations would risk discarding meaningful patterns that are important for understanding purchasing behavior. Instead of deleting them, they were preserved for modeling, while visualization techniques such as transformed variables and adjusted plots were used to reduce their impact on readability.
+
+```{r}
+shop <- shop[, !(names(shop) %in% c(
+  "Administrative",
+  "Administrative_Duration",
+  "Informational",
+  "Informational_Duration",
+  "ProductRelated",
+  "ProductRelated_Duration",
+  "OperatingSystems",
+  "Browser",
+  "Region",
+  "TrafficType"
+))]
+
+# Check result
+names(shop)
+```
+The code removes a set of original variables from the dataset, including Administrative, Administrative_Duration, Informational, Informational_Duration, ProductRelated, and ProductRelated_Duration, as well as OperatingSystems, Browser, Region, and TrafficType. This was done to improve the quality and interpretability of the dataset prior to modeling.
+
+The first group of variables was removed because they were replaced by newly engineered features, specifically time-per-page metrics. These derived variables provide more meaningful insight into user behavior by capturing the intensity of interaction rather than just raw counts or total durations. Keeping both the original and derived variables would introduce redundancy and potential multicollinearity, which could negatively impact model performance.
+
+The second group of variables—OperatingSystems, Browser, Region, and TrafficType—was removed due to a lack of contextual meaning in their encoded values. Since these variables are represented numerically without clear labels or explanations, they do not provide interpretable insights and make it difficult to draw meaningful conclusions. Including such variables could introduce noise into the model without adding explanatory value.
+
+Overall, removing these columns helps streamline the dataset, reduce redundancy, and ensure that the remaining features are both interpretable and relevant for analysis and predictive modeling.
+
+##Part 2: Data Analysis
+
+The goal of Part 2: Data Analysis is to explore the dataset in order to identify patterns, relationships, and key features that influence purchasing behavior. This involves cleaning and preparing the data, generating summary statistics, and using visualizations to better understand the distribution and interaction of variables. Through this process, important predictors of revenue can be identified and refined, providing a strong foundation for building and evaluating predictive models in the next stage of the project.
+
+```{r}
+# View the structure of the dataset
+str(shop)
+
+# Identify numerical variables
+numeric_vars <- shop %>% select(where(is.numeric))
+names(numeric_vars)
+
+# Identify categorical variables
+categorical_vars <- shop %>% select(where(is.factor))
+names(categorical_vars)
+```
+
+The dataset contains a mix of numerical and categorical variables that describe customer browsing behavior during online shopping sessions. The numerical variables include measures such as page counts, durations, bounce rate, exit rate, page value, and special day score, while the categorical variables include month, visitor type, weekend, revenue, browser, region, traffic type, and operating system. Identifying these variable types is important because numerical variables are analyzed using summary statistics and correlations, while categorical variables are better examined using frequency tables and bar charts.
+
+```{r}
+cont_vars <- shop[, c(
+  "BounceRates",
+  "ExitRates",
+  "PageValues",
+  "SpecialDay",
+  "administrative_time_per_page",
+  "informational_time_per_page",
+  "productrelated_time_per_page"
+)]
+
+# ---- Measures of centrality ----
+centrality <- data.frame(
+  Variable = names(cont_vars),
+  Mean = sapply(cont_vars, mean, na.rm = TRUE),
+  Median = sapply(cont_vars, median, na.rm = TRUE),
+  SD = sapply(cont_vars, sd, na.rm = TRUE),
+  Min = sapply(cont_vars, min, na.rm = TRUE),
+  Max = sapply(cont_vars, max, na.rm = TRUE)
+)
+
+centrality
+```
+The code computes measures of centrality and distribution for the selected continuous variables in the dataset. Specifically, it calculates the mean, median, standard deviation, minimum, and maximum for each variable and stores the results in a structured data frame. This allows for a clear comparison of central tendency and variability across all features.
+
+The results show that many variables are highly skewed, as indicated by noticeable differences between the mean and median. In several cases, the mean is significantly larger than the median, suggesting the presence of long right tails driven by higher-value observations. This is consistent with earlier findings that the dataset contains many low or zero values with a smaller number of high engagement sessions.
+
+Additionally, the large standard deviations relative to the means further confirm high variability within the data. The wide range between minimum and maximum values also highlights the presence of extreme observations, reinforcing the skewed nature of user behavior.
+
+Overall, these results support the decision to retain outliers, as they appear to represent meaningful high-engagement user activity rather than errors. They also justify the use of transformations and additional feature engineering to better capture patterns in the data and improve interpretability for modeling.
+
+```{r}
+# ---- Binary engagement variables ----
+binary_vars <- shop[, c("Product_Engaged", "Info_Engaged", "Admin_Engaged")]
+
+binary_summary <- data.frame(
+  Variable = names(binary_vars),
+  Percent_Engaged = sapply(binary_vars, function(x) mean(x, na.rm = TRUE) * 100)
+)
+
+binary_summary
+```
+The code analyzes binary engagement variables (Product_Engaged, Info_Engaged, Admin_Engaged) by calculating the percentage of sessions with any interaction in each category. This was done to simplify heavily zero-inflated data and focus on whether engagement occurred rather than how much.
+
+The results show that product engagement is very high (~93.9%), administrative engagement is moderate (~52.1%), and informational engagement is relatively low (~19.5%). This suggests that most users interact with product-related content, reinforcing its importance in predicting purchasing behavior.
+
+```{r}
+par(mfrow = c(2, 4))
+
+for (col in names(cont_vars)) {
+  hist(cont_vars[[col]],
+       main = col,
+       xlab = col)
+}
+
+par(mfrow = c(1,1))
+```
+The histograms display the distribution of key continuous variables in the dataset. Overall, the variables are highly right-skewed, with most observations clustered near zero and a small number of larger values creating long tails. This pattern is especially evident in the time-per-page variables and PageValues, indicating that most users exhibit low engagement while a smaller group shows significantly higher activity.
+
+BounceRates and ExitRates are concentrated at low values, suggesting that most sessions have relatively low exit and bounce behavior, with fewer extreme cases. SpecialDay is also heavily skewed toward zero, indicating that most sessions do not occur near special events.
+
+These distributions confirm that the dataset is zero-inflated and highly skewed, which supports the use of feature transformations and engineered variables to better capture meaningful patterns for analysis and modeling.
+
+```{r}
+# Standardize to fix scale issues
+scaled_vars <- as.data.frame(scale(cont_vars))
+
+par(mar = c(10, 4, 4, 2))
+
+boxplot(scaled_vars,
+        las = 2,
+        cex.axis = 0.7,
+        outline = FALSE,
+        main = "Standardized Boxplots of Continuous Variables")
+
+par(mar = c(5, 4, 4, 2))
+```
+The standardized boxplots compare the distributions of multiple variables on a common scale, making differences in spread and central tendency easier to interpret. Most variables are centered around zero after standardization, but still show variability across features.
+
+Outliers were removed for this visualization because their extreme values made the plots difficult to read. Even without them, the data still shows noticeable spread, indicating variability in user behavior.
+
+Overall, the results highlight differences across variables while confirming that the dataset contains a wide range of engagement levels.
+
+```{r}
+par(mfrow = c(1, 3))
+
+barplot(table(shop$Product_Engaged),
+        main = "Product Engagement",
+        names.arg = c("No", "Yes"))
+
+barplot(table(shop$Info_Engaged),
+        main = "Informational Engagement",
+        names.arg = c("No", "Yes"))
+
+barplot(table(shop$Admin_Engaged),
+        main = "Administrative Engagement",
+        names.arg = c("No", "Yes"))
+
+par(mfrow = c(1,1))
+```
+The bar charts show the distribution of binary engagement variables across sessions. Product engagement is extremely high, with the vast majority of users interacting with product-related content. In contrast, informational engagement is much lower, with most users not accessing informational pages. Administrative engagement falls in between, with a more balanced split between engaged and not engaged sessions.
+
+These results reinforce that product-related interaction is the most common and likely most important type of engagement, while informational content plays a smaller role in overall user behavior.
+
+```{r}
+# Dependent variable
+dependent_var <- "Revenue"
+
+# Independent variables (everything else)
+independent_vars <- setdiff(names(shop), dependent_var)
+independent_vars
+```
+
+```{r}
+cont_vars <- shop[, c(
+  "BounceRates",
+  "ExitRates",
+  "PageValues",
+  "SpecialDay",
+  "administrative_time_per_page",
+  "informational_time_per_page",
+  "productrelated_time_per_page"
+)]
+
+# Correlation matrix
+cor_matrix <- cor(cont_vars, use = "complete.obs")
+round(cor_matrix, 2)
+```
+The correlation matrix shows the relationships between the continuous variables. The strongest relationship is between BounceRates and ExitRates (0.91), indicating a very strong positive correlation—sessions with high bounce rates almost always have high exit rates.
+
+Most other relationships are weak. For example, PageValues has a slight negative correlation with BounceRates (-0.12) and ExitRates (-0.17), suggesting that higher-value pages are associated with slightly lower bounce and exit behavior.
+
+Engagement-related variables show very weak correlations with other features. For instance, productrelated_time_per_page has a weak negative correlation with BounceRates (-0.19) and ExitRates (-0.16), while its correlation with PageValues is minimal (0.04). Similarly, administrative_time_per_page and informational_time_per_page show very small correlations (generally between -0.18 and 0.10).
+
+SpecialDay has almost no relationship with other variables, with correlations close to zero (e.g., 0.07 with BounceRates and -0.03 with productrelated_time_per_page).
+
+Overall, aside from the strong relationship between BounceRates and ExitRates, most variables are only weakly correlated. This suggests low multicollinearity, meaning the variables provide relatively independent information for modeling.
+
+```{r}
+library(corrplot)
+
+corrplot(cor_matrix,
+         method = "color",
+         type = "upper",
+         tl.cex = 0.7)
+```
+
+```{r}
+# Convert Revenue to numeric
+shop$Revenue_num <- as.numeric(as.character(shop$Revenue) == "True")
+
+
+cont_vars_clean <- cont_vars[, sapply(cont_vars, sd, na.rm = TRUE) != 0]
+
+# Correlation with Revenue
+rev_corr <- cor(shop$Revenue_num, cont_vars_clean, use = "complete.obs")
+
+rev_corr
+```
+Revenue was converted to a numeric binary variable (1 = purchase, 0 = no purchase) to allow correlation analysis with continuous features. The results show that PageValues has the strongest positive relationship with revenue (0.489), indicating it is the most important predictor of purchase behavior.
+
+In contrast, BounceRates (-0.151) and ExitRates (-0.207) show negative correlations, meaning higher bounce and exit behavior is associated with lower likelihood of generating revenue.
+
+All other variables, including time-per-page metrics, have very weak correlations (around 0.04–0.07), suggesting they contribute less directly to predicting revenue on their own.
+
+```{r}
+rev_corr <- cor(shop$Revenue_num, cont_vars_clean, use = "complete.obs")
+
+# Create dataframe safely
+rev_corr_df <- data.frame(
+  Variable = colnames(cont_vars_clean),
+  Correlation = as.numeric(rev_corr)
+)
+```
+
+
+```{r}
+barplot(rev_corr_df$Correlation,
+        names.arg = rev_corr_df$Variable,
+        las = 2,
+        col = "steelblue",
+        main = "Correlation with Revenue")
+```
+This chart is a graphical representation of the correlation results discussed above. It visually confirms that PageValues has the strongest positive relationship with revenue, while BounceRates and ExitRates have the strongest negative relationships, with all other variables showing relatively weak correlations.
+
+```{r}
+# Recreate Revenue_num safely
+shop$Revenue_num <- as.numeric(as.character(shop$Revenue) == "True")
+
+# Check that Revenue_num was created correctly
+table(shop$Revenue)
+table(shop$Revenue_num)
+sd(shop$Revenue_num, na.rm = TRUE)
+
+# Build correlation dataset
+corr_vars <- shop[, c(
+  "Revenue_num",
+  "BounceRates",
+  "ExitRates",
+  "PageValues",
+  "SpecialDay",
+  "administrative_time_per_page",
+  "informational_time_per_page",
+  "productrelated_time_per_page"
+)]
+
+# Check which columns have zero variance
+sapply(corr_vars, sd, na.rm = TRUE)
+
+# Remove only zero-variance columns
+corr_vars_clean <- corr_vars[, sapply(corr_vars, sd, na.rm = TRUE) != 0]
+
+# Confirm Revenue_num is still there
+names(corr_vars_clean)
+
+# Correlation matrix
+corr_matrix <- cor(corr_vars_clean, use = "complete.obs")
+
+# Plot
+library(corrplot)
+
+corrplot(corr_matrix,
+         method = "color",
+         type = "upper",
+         tl.col = "red",
+         tl.cex = 0.8)
+```
+This code converts the Revenue variable into a numeric binary format (0 = no purchase, 1 = purchase) so it can be included in the correlation analysis. It then builds a dataset of relevant variables, removes any columns with zero variance, and computes a correlation matrix.
+
+The heatmap visualizes these relationships, now including Revenue. It clearly shows that PageValues has the strongest positive correlation with Revenue, while BounceRates and ExitRates have negative relationships, confirming earlier findings in a more comprehensive visual format.
+
+## Exploratory Analysis and Visuialization
+```{r}
+ggplot(shop, aes(x = factor(Revenue), y = productrelated_time_per_page)) +
+  geom_boxplot(outlier.shape = NA) +
+  coord_cartesian(ylim = quantile(shop$productrelated_time_per_page, c(0, 0.95), na.rm = TRUE)) +
+  ggtitle("Product Engagement vs Revenue") +
+  xlab("Revenue (0 = No, 1 = Yes)") +
+  ylab("Product Time per Page")
+```
+The boxplot comparing product-related time per page across revenue outcomes shows a clear upward shift in engagement for sessions that result in purchases. The median and overall distribution for revenue-generating sessions are higher than those for non-revenue sessions, indicating that users who spend more time interacting with product pages are more likely to convert.
+
+Although there is overlap between the two groups, the consistent increase in central tendency suggests that the intensity of engagement, not just the presence of engagement, plays an important role in purchasing behavior. This reinforces the idea that both binary and continuous engagement measures provide complementary insights.
+```{r}
+ggplot(shop, aes(x = factor(Revenue), fill = PageValues > 0)) +
+  geom_bar(position = "fill") +
+  ggtitle("Proportion of Non-Zero Page Values by Revenue") +
+  ylab("Proportion") +
+  labs(fill = "Page Value > 0")
+```
+The proportion-based visualization of PageValues provides a clear distinction between revenue and non-revenue sessions. A large majority of sessions that result in revenue have non-zero page values, while non-revenue sessions are predominantly associated with zero page values. This highlights the strong relationship between accumulated page value and purchasing behavior.
+
+PageValues appears to capture meaningful pre-purchase activity, likely reflecting actions such as viewing high-value pages or progressing further along the conversion funnel. The stark contrast between the two groups indicates that PageValues is one of the strongest predictors of revenue in the dataset.
+
+```{r}
+prop.table(table(shop$Revenue, shop$Product_Engaged), 2)
+
+ggplot(shop, aes(x = factor(Product_Engaged), fill = factor(Revenue))) +
+  geom_bar(position = "fill") +
+  ggtitle("Revenue by Product Engagement") +
+  xlab("Product Engaged (0 = No, 1 = Yes)") +
+  ylab("Proportion")
+```
+The relationship between product engagement and revenue demonstrates a strong and meaningful pattern. Sessions with no product engagement show a very low proportion of revenue-generating outcomes, whereas sessions with any level of engagement exhibit a substantially higher conversion rate. This indicates that the initial act of interacting with product-related content is a critical step toward completing a purchase.
+
+While not all engaged sessions result in revenue, the increase in conversion probability is significant compared to non-engaged sessions. This finding reinforces the importance of user interaction as a key behavioral signal and validates the inclusion of binary engagement variables in the analysis.
+```{r}
+ggplot(shop, aes(x = log(productrelated_time_per_page + 1))) +
+  geom_histogram(bins = 40) +
+  ggtitle("Log Distribution of Product Time per Page")
+```
+The log-transformed distribution of product-related time per page reveals a more normalized shape compared to the original highly skewed distribution. A large concentration of observations occurs near zero, indicating that many sessions involve little to no product interaction. However, the distribution extends into higher values, representing a subset of users who spend significantly more time engaging with product pages.
+
+The use of a logarithmic transformation highlights variation among non-zero observations and makes it easier to distinguish differences in engagement levels. This pattern suggests that while most users exhibit minimal interaction, those who do engage tend to vary widely in the depth of their engagement, which is likely an important factor in predicting purchasing behavior.
+```{r}
+ggplot(shop, aes(x = VisitorType, fill = factor(Revenue))) +
+  geom_bar(position = "fill") +
+  ggtitle("Revenue by Visitor Type") +
+  ylab("Proportion")
+```
+The distribution of revenue across visitor types reveals meaningful differences in purchasing behavior. New visitors exhibit the highest proportion of revenue-generating sessions, followed by users categorized as “Other,” while returning visitors show the lowest conversion rate among the three groups. This result is somewhat counterintuitive, as returning users are often expected to convert at higher rates due to familiarity with the platform.
+
+One possible explanation is that new visitors may be arriving with stronger purchase intent, such as through targeted advertising or specific product searches, whereas returning visitors may include users who are browsing or comparing options without immediate intent to purchase. Overall, visitor type appears to influence purchasing behavior, though its effect is less pronounced than engagement-based variables.
+```{r}
+ggplot(shop, aes(x = factor(Revenue), y = log(PageValues + 1))) +
+  geom_boxplot(outlier.shape = NA) +
+  ggtitle("Log Page Values vs Revenue") +
+  xlab("Revenue") +
+  ylab("Log(Page Values)")
+```
+The log-transformed PageValues visualization reveals a strong and highly distinct relationship with revenue outcomes. Sessions that do not result in revenue are almost entirely concentrated at zero, indicating minimal or no accumulated page value. In contrast, revenue-generating sessions exhibit a broad distribution of higher values, reflecting significantly greater engagement with high-value content.
+
+The clear separation between the two groups suggests that PageValues is a powerful indicator of purchasing intent. The use of a logarithmic transformation further highlights variation among revenue-generating sessions while maintaining the contrast with non-revenue sessions. This reinforces the conclusion that PageValues is one of the most influential predictors in the dataset.
+```{r}
+ggplot(shop, aes(x = VisitorType, fill = factor(Product_Engaged))) +
+  geom_bar(position = "fill")
+```
+The distribution of product engagement across visitor types shows that the majority of users, regardless of category, interact with product-related content. New visitors exhibit the highest proportion of engagement, followed closely by returning visitors, while users categorized as “Other” show slightly lower engagement levels.
+
+Although the differences between groups are relatively small, this visualization suggests that engagement behavior is consistently high across all visitor types. This indicates that while visitor type may influence purchasing outcomes, it does not significantly impact whether users interact with product content. As a result, engagement itself appears to be a more critical factor than user classification.
+
+## In Summary
+Across all visualizations, a consistent pattern emerges: user engagement is the primary driver of purchasing behavior. Both the presence of engagement (binary variables) and the intensity of engagement (time per page and PageValues) are strongly associated with revenue outcomes. In contrast, contextual variables such as visitor type show weaker and less consistent relationships. These findings highlight the importance of user interaction as a key predictor and provide a strong foundation for predictive modeling.
+
+## Data Analytics
+
+To determine the appropriate analytical approach, it is necessary to assess whether a supervised or unsupervised learning method is most suitable for the dataset. In this case, a supervised learning approach is appropriate because the dataset contains a clearly defined outcome variable, Revenue, which indicates whether a user session resulted in a purchase. The objective of the analysis is to predict this outcome based on user behavior and session characteristics.
+
+Since the dependent variable is binary in nature (purchase vs. no purchase), the problem is classified as a supervised classification task. Logistic regression is therefore selected as the primary modeling technique, as it is well-suited for modeling binary outcomes and provides interpretable results regarding the relationship between predictors and the likelihood of a purchase.
+
+The dependent variable used in this analysis is Revenue, which was converted into a numeric binary format to facilitate modeling and correlation analysis. The independent variables consist of a combination of engineered engagement metrics, binary interaction indicators, and categorical contextual features.
+
+Key independent variables include PageValues and productrelated_time_per_page, which capture both the intensity and value of user engagement. Binary variables such as Product_Engaged, Info_Engaged, and Admin_Engaged were introduced to account for the zero-inflated nature of the dataset and to distinguish between sessions with and without user interaction. These variables provide important behavioral signals that complement continuous engagement measures.
+
+Additional contextual variables, including VisitorType, Month, and Weekend, were retained as categorical predictors to capture differences in user characteristics and session timing. Variables that introduced redundancy or limited explanatory power, such as raw page counts and duration measures, were removed in favor of more interpretable and normalized features.
+
+Overall, the selected supervised classification framework allows for a structured and interpretable analysis of the factors influencing purchasing behavior, with a strong emphasis on user engagement as the primary driver of revenue outcomes.
+
+```{r}
+shop$Revenue_num <- as.numeric(as.character(shop$Revenue) == "True")
+```
+This line of code converts the Revenue variable from a categorical format into a numeric binary variable suitable for analysis and modeling. Since the original variable is stored as a character or factor ("True"/"False"), it is first converted to a character type and then evaluated as a logical condition. The result is transformed into a numeric format where 1 represents a purchase and 0 represents no purchase. This conversion is necessary for correlation analysis and for applying supervised learning techniques such as logistic regression.
+```{r}
+model_vars <- shop[, c(
+  "Revenue_num",
+  "PageValues",
+  "productrelated_time_per_page",
+  "Product_Engaged",
+  "VisitorType",
+  "Month",
+  "Weekend"
+)]
+```
+This code creates a subset of the dataset containing only the variables selected for modeling. The dependent variable, Revenue_num, is included alongside key independent variables representing user engagement, session value, and contextual factors. Engagement is captured through both continuous measures (e.g., product-related time per page) and binary indicators (e.g., whether a user interacted with product pages). Additional categorical variables such as VisitorType, Month, and Weekend are included to account for differences in user characteristics and timing. This step ensures that the model is built using relevant and non-redundant predictors identified during exploratory analysis.
+
+## Model of Data
+
+```{r}
+set.seed(36)
+
+# 70/30 split
+train_index <- sample(1:nrow(model_vars), 0.7 * nrow(model_vars))
+
+train_data <- model_vars[train_index, ]
+test_data <- model_vars[-train_index, ]
+```
+
+```{r}
+model <- glm(Revenue_num ~ ., data = train_data, family = "binomial")
+summary(model)
+```
+
+```{r}
+pred_probs <- predict(model, test_data, type = "response")
+pred_class <- ifelse(pred_probs > 0.3, 1, 0)
+table(Predicted = pred_class, Actual = test_data$Revenue_num)
+```
+
+```{r}
+accuracy <- mean(pred_class == test_data$Revenue_num)
+accuracy
+```
+
+```{r}
+# Precision
+precision <- sum(pred_class == 1 & test_data$Revenue_num == 1) /
+             sum(pred_class == 1)
+
+# Recall
+recall <- sum(pred_class == 1 & test_data$Revenue_num == 1) /
+          sum(test_data$Revenue_num == 1)
+
+# F1 Score
+f1 <- 2 * (precision * recall) / (precision + recall)
+
+precision
+recall
+f1
+```
+
+```{r}
+library(pROC)
+
+roc_obj <- roc(test_data$Revenue_num, pred_probs)
+plot(roc_obj)
+auc(roc_obj)
+```
+
+```{r}
+print(table(Predicted = pred_class, Actual = test_data$Revenue_num))
+cat("Accuracy:", accuracy, "\n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("F1:", f1, "\n")
+```
+The performance of the logistic regression model was evaluated using a confusion matrix and multiple classification metrics. A classification threshold of 0.3 was selected to improve the model’s ability to identify revenue-generating sessions while maintaining overall predictive performance.
+
+The model achieved an accuracy of approximately 89.4%, indicating that the majority of observations in the test dataset were correctly classified. In addition, the model produced a precision of approximately 70.3%, meaning that when a session is predicted to result in revenue, the prediction is correct in a substantial proportion of cases.
+
+The model demonstrated a recall of approximately 49%, indicating that nearly half of all actual revenue-generating sessions were correctly identified. This reflects a strong improvement in the model’s sensitivity to purchasing behavior, allowing it to capture a meaningful portion of potential buyers.
+
+The F1 score, which balances precision and recall, was approximately 0.58, indicating a well-balanced model that effectively manages the trade-off between correctly identifying positive cases and minimizing false positives.
+
+Overall, the model demonstrates strong predictive performance, with particularly effective identification of non-revenue sessions and a meaningful ability to detect revenue-generating behavior. The chosen classification threshold enables the model to better capture purchasing activity while maintaining reliability in its predictions, making it well-suited for analyzing user engagement and conversion patterns.
+
+## Overall Findings
+The coefficients of the logistic regression model provide insight into how each variable influences the likelihood of a session resulting in revenue. Positive coefficients indicate that an increase in the variable is associated with a higher probability of a purchase, while negative coefficients suggest a decrease in purchase likelihood.
+
+Among all variables, PageValues emerges as one of the strongest predictors of revenue. Higher page values are associated with a substantial increase in the likelihood of a purchase, indicating that users who interact with high-value pages or progress further along the conversion funnel are significantly more likely to complete a transaction. This finding aligns with earlier exploratory analysis, where PageValues showed a clear separation between revenue and non-revenue sessions.
+
+Similarly, productrelated_time_per_page has a positive relationship with revenue, suggesting that users who spend more time engaging with product pages are more likely to convert. This highlights the importance of sustained interaction and deeper engagement with product content as a key driver of purchasing behavior.
+
+Binary engagement variables, such as Product_Engaged, also play an important role. Sessions in which users interact with product-related content are significantly more likely to result in revenue compared to sessions with no engagement. This reinforces the importance of user interaction as a critical step in the conversion process.
+
+Other engagement-related variables, including informational_time_per_page and administrative_time_per_page, may also contribute to the model, though their effects are typically less pronounced. These variables capture additional aspects of user behavior, such as browsing informational content or navigating administrative pages, which may indirectly support the purchasing process.
+
+Categorical variables such as VisitorType, Month, and Weekend provide contextual insights. For example, certain visitor types or time periods may be associated with slightly higher or lower probabilities of purchase, though these effects are generally weaker than those of direct engagement metrics. This suggests that while user characteristics and timing play a role, they are secondary to behavioral engagement in determining revenue outcomes.
+
+Overall, the model highlights that user engagement—both in terms of presence and intensity—is the dominant factor influencing purchasing behavior. Variables capturing meaningful interaction with product-related content consistently show the strongest impact on revenue, confirming the central role of engagement in driving conversions.
+
+## Final Conclusion
+This analysis examined the relationship between user behavior and purchasing outcomes using a combination of exploratory data analysis and supervised learning techniques. Through data cleaning, feature engineering, and visualization, clear patterns emerged that highlight the importance of user engagement in driving revenue.
+
+Exploratory analysis revealed that the dataset is highly skewed and zero-inflated, with most users exhibiting minimal interaction and a smaller subset demonstrating significantly higher engagement. To address this structure, new variables were constructed to better capture user behavior, including time-per-page metrics and binary engagement indicators. These transformations improved interpretability and allowed for a more meaningful analysis of user interaction patterns.
+
+The results consistently show that engagement-related variables are the strongest predictors of purchasing behavior. In particular, PageValues and product-related engagement metrics demonstrated a clear and significant relationship with revenue outcomes. Users who interact with product content and generate higher page values are substantially more likely to complete a purchase. In contrast, contextual variables such as visitor type and timing play a more limited role, serving as secondary influences rather than primary drivers.
+
+A logistic regression model was developed to predict revenue outcomes based on these variables. The model achieved strong overall performance, with an accuracy of approximately 88.9% and a precision of 70.3%. By selecting an appropriate classification threshold, the model was also able to improve recall to nearly 50%, allowing it to capture a meaningful portion of revenue-generating sessions. The resulting F1 score of 0.58 reflects a well-balanced model that effectively manages the trade-off between identifying buyers and minimizing incorrect predictions.
+
+Overall, the findings demonstrate that both the presence and intensity of user engagement are critical factors in predicting purchasing behavior. The combination of binary engagement indicators and continuous interaction metrics provides a comprehensive view of user activity, enabling the model to capture key behavioral patterns. These insights could be valuable in real-world applications, such as improving user experience, optimizing marketing strategies, and increasing conversion rates.
