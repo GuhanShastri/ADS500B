@@ -1,0 +1,442 @@
+---
+title: "Finality"
+output: pdf_document
+date: "2026-04-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+shop <- read.csv("online_shoppers_intention.csv")
+data <- shop
+##install.packages(c("ggplot2", "moments", "corrplot", "tidyr"))
+library(ggplot2)
+library(moments)
+library(corrplot)
+library(tidyr)
+library(dplyr)
+
+str(data)
+sapply(data, class)
+summary(data)
+```
+```{r}
+quant_cols <- c("Administrative", "Administrative_Duration", "Informational",
+"Informational_Duration", "ProductRelated", "ProductRelated_Duration",
+"BounceRates", "ExitRates", "PageValues", "SpecialDay",
+"OperatingSystems", "Browser", "Region", "TrafficType")
+
+colSums(is.na(data[, quant_cols]))
+```
+```{r}
+for (col in quant_cols) {
+data[[col]][is.na(data[[col]])] <- median(data[[col]], na.rm = TRUE)
+}
+
+colSums(is.na(data[, quant_cols]))
+
+
+cat_cols <- c("Month", "VisitorType", "Weekend", "Revenue")
+
+
+for (col in cat_cols) {
+data[[col]][is.na(data[[col]]) | data[[col]] == ""] <- "NA"
+}
+```
+```{r}
+# Numeric columns you want if they exist
+num_cols <- c(
+  "Administrative", "Administrative_Duration",
+  "Informational", "Informational_Duration",
+  "ProductRelated", "ProductRelated_Duration",
+  "BounceRates", "ExitRates", "PageValues", "SpecialDay",
+  "Admin_Time_Per_Page", "Info_Time_Per_Page", "Product_Time_Per_Page"
+)
+
+# Keep only columns that are actually in the dataset
+num_cols <- num_cols[num_cols %in% names(data)]
+num_cols
+
+# Outlier detection
+find_outliers <- function(x) {
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr <- q3 - q1
+  lower <- q1 - 1.5 * iqr
+  upper <- q3 + 1.5 * iqr
+  which(x < lower | x > upper)
+}
+
+outlier_list <- lapply(data[, num_cols, drop = FALSE], find_outliers)
+outlier_counts <- sapply(outlier_list, length)
+outlier_counts
+
+all_outlier_rows <- sort(unique(unlist(outlier_list)))
+outlier_data <- shop[all_outlier_rows, , drop = FALSE]
+
+head(outlier_data)
+
+```
+
+```{r}
+normalize <- function(x) {
+return((x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE)))
+}
+
+data_normalized <- data
+cols_to_normalize <- c("BounceRates", "ExitRates")
+data_normalized[, cols_to_normalize] <- lapply(data[, cols_to_normalize], normalize)
+summary(data_normalized[, quant_cols])
+
+
+data <- cbind(data_normalized[, quant_cols], data[, cat_cols])
+
+names(data)
+head(data)
+```
+```{r}
+data$Product_Engaged <- ifelse(data$ProductRelated_Duration > 0, 1, 0)
+data$Info_Engaged <- ifelse(data$Informational_Duration > 0, 1, 0)
+data$Admin_Engaged <- ifelse(data$Administrative_Duration > 0, 1, 0)
+```
+
+
+```{r}
+data <- data[, !names(data) %in% c("OperatingSystems", "Browser", "Region", "TrafficType")]
+```
+
+
+
+
+
+```{r}
+# Recreate Revenue_num safely
+shop$Revenue_num <- as.numeric(as.character(shop$Revenue) == "True")
+
+# Check that Revenue_num was created correctly
+table(shop$Revenue)
+table(shop$Revenue_num)
+sd(shop$Revenue_num, na.rm = TRUE)
+```
+```{r}
+page_types <- c("Administrative", "Informational", "ProductRelated")
+
+for (p in page_types) {
+  count_col <- data[[p]]
+  duration_col <- data[[paste0(p, "_Duration")]]
+  
+  new_name <- paste0(tolower(p), "_time_per_page")
+  
+  data[[new_name]] <- ifelse(count_col > 0,
+                             duration_col / count_col,
+                             0)
+}
+summary(data$administrative_time_per_page)
+summary(data$productrelated_time_per_page)
+summary(data$informational_time_per_page)
+```
+
+
+
+
+## Part 2
+```{r}
+shop <-data
+# View the structure of the dataset
+str(shop)
+
+# Identify numerical variables
+numeric_vars <- shop %>% select(where(is.numeric))
+names(numeric_vars)
+
+# Identify categorical variables
+categorical_vars <- shop %>% select(where(is.factor))
+names(categorical_vars)
+```
+```{r}
+summary(shop)
+```
+
+```{r}
+
+
+cont_vars <- shop[, c(
+  "BounceRates",
+  "ExitRates",
+  "PageValues",
+  "SpecialDay",
+  "administrative_time_per_page",
+  "informational_time_per_page",
+  "productrelated_time_per_page"
+)]
+
+# ---- Measures of centrality ----
+centrality <- data.frame(
+  Variable = names(cont_vars),
+  Mean = sapply(cont_vars, mean, na.rm = TRUE),
+  Median = sapply(cont_vars, median, na.rm = TRUE),
+  SD = sapply(cont_vars, sd, na.rm = TRUE),
+  Min = sapply(cont_vars, min, na.rm = TRUE),
+  Max = sapply(cont_vars, max, na.rm = TRUE)
+)
+
+centrality
+```
+```{r}
+par(mfrow = c(2, 4))
+
+for (col in names(cont_vars)) {
+  hist(cont_vars[[col]],
+       main = col,
+       xlab = col)
+}
+
+par(mfrow = c(1,1))
+```
+
+```{r}
+# ---- Binary engagement variables ----
+binary_vars <- shop[, c("Product_Engaged", "Info_Engaged", "Admin_Engaged")]
+
+binary_summary <- data.frame(
+  Variable = names(binary_vars),
+  Percent_Engaged = sapply(binary_vars, function(x) mean(x, na.rm = TRUE) * 100)
+)
+
+binary_summary
+```
+
+```{r}
+par(mfrow = c(1, 3))
+
+barplot(table(shop$Product_Engaged),
+        main = "Product Engagement",
+        names.arg = c("No", "Yes"))
+
+barplot(table(shop$Info_Engaged),
+        main = "Informational Engagement",
+        names.arg = c("No", "Yes"))
+
+barplot(table(shop$Admin_Engaged),
+        main = "Administrative Engagement",
+        names.arg = c("No", "Yes"))
+
+par(mfrow = c(1,1))
+```
+
+```{r}
+cont_vars <- shop[, c(
+  "BounceRates",
+  "ExitRates",
+  "PageValues",
+  "SpecialDay",
+  "administrative_time_per_page",
+  "informational_time_per_page",
+  "productrelated_time_per_page"
+)]
+
+# Correlation matrix
+cor_matrix <- cor(cont_vars, use = "complete.obs")
+round(cor_matrix, 2)
+```
+
+```{r}
+library(corrplot)
+
+corrplot(cor_matrix,
+         method = "color",
+         type = "upper",
+         tl.cex = 0.7)
+```
+
+```{r}
+shop$Revenue_num <- as.numeric(as.character(shop$Revenue) == "True")
+
+
+cont_vars_clean <- cont_vars[, sapply(cont_vars, sd, na.rm = TRUE) != 0]
+
+# Correlation with Revenue
+rev_corr <- cor(shop$Revenue_num, cont_vars_clean, use = "complete.obs")
+
+rev_corr
+```
+
+```{r}
+rev_corr <- cor(shop$Revenue_num, cont_vars_clean, use = "complete.obs")
+
+# Create dataframe safely
+rev_corr_df <- data.frame(
+  Variable = colnames(cont_vars_clean),
+  Correlation = as.numeric(rev_corr)
+)
+```
+
+```{r}
+barplot(rev_corr_df$Correlation,
+        names.arg = rev_corr_df$Variable,
+        las = 2,
+        col = "steelblue",
+        main = "Correlation with Revenue")
+```
+
+```{r}
+# Recreate Revenue_num safely
+shop$Revenue_num <- as.numeric(as.character(shop$Revenue) == "True")
+
+# Check that Revenue_num was created correctly
+table(shop$Revenue)
+table(shop$Revenue_num)
+sd(shop$Revenue_num, na.rm = TRUE)
+
+# Build correlation dataset
+corr_vars <- shop[, c(
+  "Revenue_num",
+  "BounceRates",
+  "ExitRates",
+  "PageValues",
+  "SpecialDay",
+  "administrative_time_per_page",
+  "informational_time_per_page",
+  "productrelated_time_per_page"
+)]
+
+# Check which columns have zero variance
+sapply(corr_vars, sd, na.rm = TRUE)
+
+# Remove only zero-variance columns
+corr_vars_clean <- corr_vars[, sapply(corr_vars, sd, na.rm = TRUE) != 0]
+
+# Confirm Revenue_num is still there
+names(corr_vars_clean)
+
+# Correlation matrix
+corr_matrix <- cor(corr_vars_clean, use = "complete.obs")
+
+# Plot
+library(corrplot)
+
+corrplot(corr_matrix,
+         method = "color",
+         type = "upper",
+         tl.col = "red",
+         tl.cex = 0.8)
+```
+
+```{r}
+ggplot(shop, aes(x = factor(Revenue), y = productrelated_time_per_page)) +
+  geom_boxplot(outlier.shape = NA) +
+  coord_cartesian(ylim = quantile(shop$productrelated_time_per_page, c(0, 0.95), na.rm = TRUE)) +
+  ggtitle("Product Engagement vs Revenue") +
+  xlab("Revenue (0 = No, 1 = Yes)") +
+  ylab("Product Time per Page")
+```
+
+```{r}
+ggplot(shop, aes(x = factor(Revenue), fill = PageValues > 0)) +
+  geom_bar(position = "fill") +
+  ggtitle("Proportion of Non-Zero Page Values by Revenue") +
+  ylab("Proportion") +
+  labs(fill = "Page Value > 0")
+```
+
+```{r}
+prop.table(table(shop$Revenue, shop$Product_Engaged), 2)
+
+ggplot(shop, aes(x = factor(Product_Engaged), fill = factor(Revenue))) +
+  geom_bar(position = "fill") +
+  ggtitle("Revenue by Product Engagement") +
+  xlab("Product Engaged (0 = No, 1 = Yes)") +
+  ylab("Proportion")
+```
+
+```{r}
+ggplot(shop, aes(x = log(productrelated_time_per_page + 1))) +
+  geom_histogram(bins = 40) +
+  ggtitle("Log Distribution of Product Time per Page")
+```
+
+```{r}
+ggplot(shop, aes(x = factor(Revenue), y = log(PageValues + 1))) +
+  geom_boxplot(outlier.shape = NA) +
+  ggtitle("Log Page Values vs Revenue") +
+  xlab("Revenue") +
+  ylab("Log(Page Values)")
+```
+
+```{r}
+ggplot(shop, aes(x = VisitorType, fill = factor(Revenue))) +
+  geom_bar(position = "fill") +
+  ggtitle("Revenue by Visitor Type") +
+  ylab("Proportion")
+```
+
+```{r}
+ggplot(shop, aes(x = VisitorType, fill = factor(Product_Engaged))) +
+  geom_bar(position = "fill")
+```
+
+## Part 3
+
+```{r}
+shop$Revenue <- as.factor(shop$Revenue)
+```
+
+```{r}
+set.seed(123)
+
+train_index <- sample(1:nrow(shop), 0.7 * nrow(shop))
+
+train_data <- shop[train_index, ]
+test_data <- shop[-train_index, ]
+```
+
+```{r}
+log_model <- glm(Revenue ~ Product_Engaged + Info_Engaged + Admin_Engaged +
+                 administrative_time_per_page +
+                 productrelated_time_per_page +
+                 informational_time_per_page +
+                 PageValues + BounceRates + SpecialDay + ExitRates,
+                 data = train_data,
+                 family = "binomial")
+
+summary(log_model)
+```
+
+```{r}
+predicted_probs <- predict(log_model, test_data, type = "response")
+
+predicted_class <- ifelse(predicted_probs > 0.5, "TRUE", "FALSE")
+predicted_class <- as.factor(predicted_class)
+```
+
+```{r}
+table(Predicted = predicted_class, Actual = test_data$Revenue)
+```
+
+```{r}
+precision <- 195 / (195 + 69)
+precision
+```
+
+```{r}
+recall <- 195 / (195 + 379)
+recall
+```
+
+```{r}
+(3056 + 195) / (3056 + 379 + 69 + 195)
+```
+
+
+
+
+
+
+
+
+
+
+
+
